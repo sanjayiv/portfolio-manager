@@ -10,8 +10,8 @@ shinyUI(pageWithSidebar(
 		h3("Hello World!"),
 		tabsetPanel(
 			tabPanel("Transactions", dataTableOutput("txntable")),
-			tabPanel("Capital Gains (Detailed)", dataTableOutput("gainstable")),
-			tabPanel("Capital Gains (Summary)", dataTableOutput("gainsummarytable"))
+			tabPanel("Capital Gains (Summary)", dataTableOutput("gainsummarytable")),
+			tabPanel("Capital Gains (Detailed)", dataTableOutput("gainstable"))
 		)
 	)
 ))
