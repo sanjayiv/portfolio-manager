@@ -7,11 +7,23 @@ shinyUI(pageWithSidebar(
 		sliderInput("sobs", "Number of observations to view: ", min=1, max=nrow(globalTxn), value=10)
 	),
 	mainPanel(
-		h3("Hello World!"),
 		tabsetPanel(
 			tabPanel("Transactions", dataTableOutput("txntable")),
-			tabPanel("Capital Gains (Summary)", dataTableOutput("gainsummarytable")),
-			tabPanel("Capital Gains (Detailed)", dataTableOutput("gainstable"))
+			tabPanel("Capital Gains (Simple)", 
+				downloadButton('downloadSimpleGains', 'Download'),
+				tags$hr(),
+				dataTableOutput("gainsimpletable")
+			),
+			tabPanel("Capital Gains (Summary)", 
+				downloadButton('downloadGainsSummary', 'Download'),
+				tags$hr(),
+				dataTableOutput("gainsummarytable")
+			),
+			tabPanel("Capital Gains (Detailed)", 
+				downloadButton('downloadDetailedGains', 'Download'),
+				tags$hr(),
+				dataTableOutput("gainstable")
+			)
 		)
 	)
 ))

@@ -1,30 +1,37 @@
 library(sqldf)
 
 stcgTAXPct <- 0.15
-showColNames <- c("TrdDateTime", "ScripName", "BorS", "Qty", "MktPrice", "MktValueSigned", "ExtraCost", "ExtraCost4Gain", "NetAmount", "NetAmount4Gain")
+showColNames <- c("TrdDateTime", "ScripName", "BorS", "Qty", "MktPrice", "MktValueSigned", "MktValueSignedPS", "ExtraCost", "ExtraCostPS", "ExtraCost4Gain", "ExtraCost4GainPS", "NetAmount", "NetAmountPS", "NetAmount4Gain", "NetAmount4GainPS")
 
-globalTxn <- read.csv("/Users/Admin/Work/Mine/portfolio-manager/demat_txn.csv", header=T)
+globalTxn <- read.csv("/Users/Admin/Work/Mine/portfolio-manager/demat_txn.csv", header=F)
 
 computeNetAmount <- function(tmpTxn){
+	print("computeNetAmount: started...")
 	colNames <- list("TrdDttt", "TrdNo", "OrderNo", "Exch", "SettNo", "SettType", "TrdTime", "OrderTime", "ScripName", "BorS", "Qty", "MktPrice", "MktValue", "SqupDel", "BrokAmt", "ServTax", "StampDuty", "TxnChrg", "STTonTC", "STT", "SebiTurnoverTax", "EduCess", "HighEduCess", "OtherChrg", "NetAmt", "Product", "SIPFlag", "SIPRefNo")
 	colnames(tmpTxn) <- colNames
+	#Select only rows which are buy/sell record
+	tmpTxn <- tmpTxn[(tmpTxn$BorS=="B" | tmpTxn$BorS=="b" | tmpTxn$BorS=="S" | tmpTxn$BorS=="s"),]
 	tmpTxn$TrdDateTime <- as.POSIXct( paste(tmpTxn$TrdDttt, tmpTxn$TrdTime), format="%d-%b-%y %H:%M:%S")
 	tmpTxn$MktValueSigned <- ifelse(tmpTxn$BorS=="B" | tmpTxn$BorS=="b", -1, 1)*tmpTxn$MktValue
+	tmpTxn$MktValueSignedPS <- ifelse(tmpTxn$BorS=="B" | tmpTxn$BorS=="b", -1, 1)*tmpTxn$MktPrice
 	tmpTxn$ExtraCost <- tmpTxn$BrokAmt + tmpTxn$ServTax + tmpTxn$StampDuty + tmpTxn$TxnChrg + tmpTxn$STTonTC + tmpTxn$STT + tmpTxn$SebiTurnoverTax + tmpTxn$EduCess + tmpTxn$HighEduCess + tmpTxn$OtherChrg
-	tmpTxn$ExtraCost4Gain <- tmpTxn$BrokAmt + tmpTxn$ServTax + tmpTxn$StampDuty + tmpTxn$TxnChrg + tmpTxn$OtherChrg
+	#tmpTxn$ExtraCost4Gain <- tmpTxn$BrokAmt + tmpTxn$ServTax + tmpTxn$StampDuty + tmpTxn$TxnChrg + tmpTxn$OtherChrg
+	# count out only Brokerage cost for Capital Gains
+	tmpTxn$ExtraCost4Gain <- tmpTxn$BrokAmt
 	tmpTxn$NetAmount <- tmpTxn$MktValueSigned-tmpTxn$ExtraCost
 	tmpTxn$NetAmount4Gain <- tmpTxn$MktValueSigned-tmpTxn$ExtraCost4Gain
 	#convert to per share
-	tmpTxn$MktValueSigned <- tmpTxn$MktValueSigned / tmpTxn$Qty
-	tmpTxn$ExtraCost <- tmpTxn$ExtraCost / tmpTxn$Qty
-	tmpTxn$NetAmount <- tmpTxn$NetAmount / tmpTxn$Qty
-	tmpTxn$ExtraCost4Gain <- tmpTxn$ExtraCost4Gain / tmpTxn$Qty
-	tmpTxn$NetAmount4Gain <- tmpTxn$NetAmount4Gain / tmpTxn$Qty
+	tmpTxn$ExtraCostPS <- tmpTxn$ExtraCost / tmpTxn$Qty
+	tmpTxn$NetAmountPS <- tmpTxn$NetAmount / tmpTxn$Qty
+	tmpTxn$ExtraCost4GainPS <- tmpTxn$ExtraCost4Gain / tmpTxn$Qty
+	tmpTxn$NetAmount4GainPS <- tmpTxn$NetAmount4Gain / tmpTxn$Qty
+	print("computeNetAmount: finished")
 	return(tmpTxn)
 }
 globalTxn <- computeNetAmount(globalTxn)
 
 computeGains <- function(allTxn){
+	print("computeGains: started...")
 	buyTxn <- allTxn[(allTxn$BorS=="B" | allTxn$BorS=="b"),showColNames]
 	sellTxn <- allTxn[(allTxn$BorS=="S" | allTxn$BorS=="s"),showColNames]
 	buyTxnSorted <- buyTxn[do.call(order,buyTxn),]
@@ -37,9 +44,9 @@ computeGains <- function(allTxn){
 		numDaysInYear <- as.numeric(difftime(sellDate,yearAgoDate,units="days"))
 		sellScrip <- txn$ScripName
 		sellQty <- txn$Qty
-		sellMktValueSigned <- txn$MktValueSigned
-		sellNetAmount <- txn$NetAmount
-		sellNetAmount4Gain <- txn$NetAmount4Gain
+		sellMktValueSignedPS <- txn$MktValueSignedPS
+		sellNetAmountPS <- txn$NetAmountPS
+		sellNetAmount4GainPS <- txn$NetAmount4GainPS
 		print(paste("Finding respective buy for sell of ", sellQty, " stocks of ", sellScrip))
 		#
 		for(ii in 1:nrow(buyTxnSorted)) {
@@ -49,20 +56,26 @@ computeGains <- function(allTxn){
 				buyDate <- tmpBuyRow$TrdDateTime
 				buyScrip <- tmpBuyRow$ScripName
 				buyQty <- tmpBuyRow$Qty
-				buyMktValueSigned <- tmpBuyRow$MktValueSigned
-				buyNetAmount <- tmpBuyRow$NetAmount
-				buyNetAmount4Gain <- tmpBuyRow$NetAmount4Gain
+				buyMktValueSignedPS <- tmpBuyRow$MktValueSignedPS
+				buyNetAmountPS <- tmpBuyRow$NetAmountPS
+				buyNetAmount4GainPS <- tmpBuyRow$NetAmount4GainPS
 				minQty <- min(sellQty, buyQty)
-				gainValue <- round(minQty*(sellMktValueSigned+buyMktValueSigned),2)
-				gainNet <- round(minQty*(sellNetAmount4Gain+buyNetAmount4Gain),2)
-				pctReturn <- round(-100*gainNet/(minQty*buyMktValueSigned),2)
+				sellMktValueSigned <- round(minQty*sellMktValueSignedPS,2)
+				buyMktValueSigned <- round(minQty*buyMktValueSignedPS,2)
+				#gainValue <- round(minQty*(sellMktValueSignedPS+buyMktValueSignedPS),2)
+				gainValue <- round(sellMktValueSigned+buyMktValueSigned,2)
+				sellNet <- round(minQty*sellNetAmount4GainPS,2)
+				buyNet <- round(minQty*buyNetAmount4GainPS,2)
+				#gainNet <- round(minQty*(sellNetAmount4GainPS+buyNetAmount4GainPS),2)
+				gainNet <- round(sellNet+buyNet,2)
+				pctReturn <- round(-100*gainNet/(minQty*buyMktValueSignedPS),2)
 				numDaysOfHold <- as.numeric(difftime(sellDate,buyDate,units="days"))
 				pctReturnA <- round(pctReturn*numDaysInYear/numDaysOfHold,2)
 				isSTCG <- ifelse(as.Date(buyDate)>yearAgoDate,"STCG","LTCG")
-				stcgTAX <- ifelse(as.Date(buyDate)>yearAgoDate,gainNet*stcgTAXPct,0)
+				stcgTAX <- round(ifelse(as.Date(buyDate)>yearAgoDate,gainNet*stcgTAXPct,0),2)
 				#
-				print(paste(sellScrip, minQty, sellQty, buyQty))
-				gainsRecords <- rbind(gainsRecords, cbind(paste(sellScrip), minQty, sellQty, buyQty, paste(sellDate), sellMktValueSigned, round(sellNetAmount4Gain,2), round(minQty*sellNetAmount4Gain,2), paste(buyDate), buyMktValueSigned, round(buyNetAmount4Gain,2), round(minQty*buyNetAmount4Gain,2), gainValue, gainNet, pctReturn, pctReturnA, isSTCG, stcgTAX))
+				gainsRecords <- rbind(gainsRecords, cbind(paste(sellScrip), minQty, sellQty, buyQty, paste(sellDate), sellMktValueSignedPS, sellMktValueSigned, round(sellNetAmount4GainPS,2), sellNet, paste(buyDate), buyMktValueSignedPS, buyMktValueSigned, round(buyNetAmount4GainPS,2), buyNet, gainValue, gainNet, pctReturn, pctReturnA, isSTCG, stcgTAX))
+				#gainsRecords <- rbind(gainsRecords, cbind(paste(sellScrip), minQty, sellQty, buyQty, paste(sellDate), sellMktValueSignedPS, sellMktValueSigned, sellNetAmount4GainPS, sellNet, paste(buyDate), buyMktValueSignedPS, buyMktValueSigned, buyNetAmount4GainPS, buyNet, gainValue, gainNet, pctReturn, pctReturnA, isSTCG, stcgTAX))
 				sellQty <- sellQty-minQty
 				buyTxnSorted[ii,"Qty"] <<- (buyQty-minQty)
 				print(paste("Setting qty to ", (buyQty-minQty), " for ii ", ii))
@@ -73,14 +86,23 @@ computeGains <- function(allTxn){
 		}
 		return(gainsRecords)
 	}))
-	gainsColNames <- c("Scrip", "Qty", "SellQty", "BuyQty", "SellDate", "SellValue", "SellNetPS", "SellNet", "BuyDate", "BuyValue", "BuyNetPS", "BuyNet", "GainValue", "GainNet", "PctReturn", "PctReturnAnnualized", "isSTCG", "stcgTAX")
+	gainsColNames <- c("Scrip", "Qty", "SellQty", "BuyQty", "SellDate", "SellValuePS", "SellValue", "SellNetPS", "SellNet", "BuyDate", "BuyValuePS", "BuyValue", "BuyNetPS", "BuyNet", "GainValue", "GainNet", "PctReturn", "PctReturnAnnualized", "isSTCG", "stcgTAX")
 	colnames(gainsData) <- gainsColNames
+	print("computeGains: finished")
 	return(gainsData)
 }
 gainsData <- data.frame(computeGains(globalTxn))
 
 summarizeGains <- function(gainsData) {
-	gainsSummary <- sqldf("select Scrip, sum(Qty) as Qty, date(SellDate) as SellDate, sum(SellNet) as SellNet, date(BuyDate) as BuyDate, sum(BuyNet) as BuyNet, sum(GainNet) as GainNet, sum(stcgTAX) as stcgTAX from gainsData group by Scrip, SellDate, BuyDate order by SellDate, Scrip")
+	print("summarizeGains: running query...")
+	gainsSummary <- sqldf("select Scrip, sum(Qty) as Qty, date(SellDate) as SellDate, sum(SellNet) as SellNet, date(BuyDate) as BuyDate, sum(BuyNet) as BuyNet, sum(GainNet) as GainNet, sum(stcgTAX) as stcgTAX, sum(SellValue) as SellValue, sum(BuyValue) as BuyValue, sum(GainValue) as GainValue from gainsData group by Scrip, SellDate, BuyDate order by SellDate, Scrip")
 	return(gainsSummary)
 }
 gainsSummary <- summarizeGains(gainsData)
+
+simplifyGains <- function(gainsSummary) {
+	print("simplifyGains: running query...")
+	simpleGains <- sqldf("select Scrip, sum(Qty) as Qty, sum(SellNet) as SellNet, sum(BuyNet) as BuyNet, sum(GainNet) as GainNet, sum(stcgTAX) as stcgTAX, sum(SellValue) as SellValue, sum(BuyValue) as BuyValue, sum(GainValue) as GainValue from gainsSummary group by Scrip")
+	return(simpleGains)
+}
+simpleGains <- simplifyGains(gainsSummary)
