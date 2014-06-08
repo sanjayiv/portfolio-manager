@@ -4,7 +4,7 @@ shinyUI(pageWithSidebar(
 	headerPanel("Personal Portfolio Manager"),
 	sidebarPanel(
 		numericInput("obs", "Number of observations to view:", 10),
-		sliderInput("sobs", "Number of observations to view: ", min=1, max=nrow(globalTxn), value=10)
+		selectInput("whichfy", "FY: ", c('FY13'=as.Date('2014-03-31'), 'FY14'=as.Date('2015-03-31'), 'FY15'=as.Date('2016-03-31')))
 	),
 	mainPanel(
 		tabsetPanel(
