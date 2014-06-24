@@ -27,12 +27,7 @@ def get_logger(filename='', format="%(asctime)s: %(levelname)s: %(message)s", le
     logging.basicConfig(filename=filename, format="%(asctime)s: %(levelname)s: %(message)s", level=logging.DEBUG)
     return logging.getLogger(filename)
 
-def main(txncsvs, outdir, logger):
-    if not os.path.exists(outdir):
-        os.makedirs(outdir)
-        print "Created `%s` output dir"%outdir
-    else:
-        print "Output dir `%s` already exists! Overwriting content"%outdir
+def load_txtcsvs(txncsvs):
     df_is_empty = True
     txndf = None
     for eachcsv in txncsvs.split(','):
@@ -58,7 +53,26 @@ def main(txncsvs, outdir, logger):
     print len(txndf.index)
     print len(txndf.trdno)
     print len(txndf.trdno.unique())
+    return txndf
 
+def calc_per_share_values(txndf):
+    txndf['trddatetime'] = txndf.apply(lambda r: datetime.datetime.strptime(r.ix['trddate']+r.ix['trdtime'], "%d-%b-%y%H:%M:%S"), axis=1)
+    txndf['netamt_ps_v1'] = txndf.buysell.apply(lambda bs: -1 if 'B' == bs else 1)
+    txndf['netamt_ps_v1'] = txndf.apply(lambda r: (r.ix['netamt_ps_v1']*r.ix['value']-r.ix['brokamt'])/r.ix['qty'], axis=1)
+    txndf['netamt_ps_v2'] = txndf.apply(lambda r: r.ix['netamt']/r.ix['qty'], axis=1)
+    buy_txndf = txndf[txndf.buysell=='B']
+    print buy_txndf[['trddatetime','buysell','qty','price','value','brokamt','netamt_ps_v1','netamt_ps_v2']].head(5)
+    sell_txndf = txndf[txndf.buysell=='S']
+    print sell_txndf[['trddatetime','buysell','qty','price','value','brokamt','netamt_ps_v1','netamt_ps_v2']].head(5)
+
+def main(txncsvs, outdir, logger):
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
+        print "Created `%s` output dir"%outdir
+    else:
+        print "Output dir `%s` already exists! Overwriting content"%outdir
+    txndf = load_txtcsvs(txncsvs)
+    calc_per_share_values(txndf)
 
 def parse_args():
     default_output = formatted_filepath('output', datestamp=True)
