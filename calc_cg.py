@@ -4,6 +4,7 @@ Notes: Keep all COMMON UTIL functions here. Repeat, "COMMON UTIL"
 import os, sys, datetime
 import logging
 import optparse
+import pandas
 
 # utils
 
@@ -32,8 +33,32 @@ def main(txncsvs, outdir, logger):
         print "Created `%s` output dir"%outdir
     else:
         print "Output dir `%s` already exists! Overwriting content"%outdir
+    df_is_empty = True
+    txndf = None
     for eachcsv in txncsvs.split(','):
         print eachcsv
+        assert os.path.exists(eachcsv)
+        tmpdf = pandas.read_csv(eachcsv, header=None)
+        print tmpdf.head(1)
+        print tmpdf.columns
+        if df_is_empty:
+            df_is_empty = False
+            txndf = tmpdf
+        else:
+            txndf = pandas.concat([txndf, tmpdf])
+    columns = [ 'trddate', 'trdno', 'orderno', 'exchange', 'settno', 'setttype', 'trdtime', 'ordertime',
+        'scrip', 'buysell', 'qty', 'price', 'value', 'squpdel', 'brokamt', 'servtax', 'stampduty', 
+        'txnchg', 'stotc', 'stt', 'sebitt', 'educess', 'higheducess', 'otherchg', 'netamt',
+        'product', 'sipflag', 'siprefno']
+    assert len(columns) == len(txndf.columns)
+    txndf.columns = columns
+    print set(txndf.buysell)
+    assert set(txndf.buysell) == set(['S','B'])
+    print txndf.head(1)
+    print len(txndf.index)
+    print len(txndf.trdno)
+    print len(txndf.trdno.unique())
+
 
 def parse_args():
     default_output = formatted_filepath('output', datestamp=True)
