@@ -114,6 +114,21 @@ def fy_from_sell_date(sell_date):
     else:
         return "FY-%d"%(sell_date.year+1)
 
+def df_from_gains_records(header, gains_records):
+    assert len(header) == len(gains_records[0])
+    df_dict = {}
+    for record in gains_records:
+        for k, v in zip(header, record):
+            df_dict.setdefault(k,[]).append(v)
+    gains_df = pandas.DataFrame(df_dict)
+    gains_df['buy_date'] = gains_df.buy_datetime.apply(lambda dt: dt.date())
+    gains_df['sell_date'] = gains_df.sell_datetime.apply(lambda dt: dt.date())
+    gains_df['gain_price'] = gains_df.apply(lambda r: r.ix['qty']*r.ix['gain_price_ps'], axis=1)
+    gains_df['gain_v1'] = gains_df.apply(lambda r: r.ix['qty']*r.ix['gain_v1_ps'], axis=1)
+    gains_df['gain_v2'] = gains_df.apply(lambda r: r.ix['qty']*r.ix['gain_v2_ps'], axis=1)
+    gains_df['fy'] = gains_df.sell_datetime.apply(lambda dt: fy_from_sell_date(dt))
+    return gains_df
+
 def main(txncsvs, outdir, logger):
     if not os.path.exists(outdir):
         os.makedirs(outdir)
@@ -126,33 +141,17 @@ def main(txncsvs, outdir, logger):
     latest_date = max(txndf.trddatetime)
     fy_dict = get_fy_dict(earliest_date, latest_date)
     gains_records = match_buys_for_sells(txndf)
-    header = ['scrip', 'qty', 'gain_price_ps', 'gain_v1_ps', 'gain_v2_ps', 'sell_date', 'sell_price_ps', 'sell_v1_ps', 'sell_v2_ps', 'buy_date', 'buy_price_ps', 'buy_v1_ps', 'buy_v2_ps']
-    df_dict = {}
-    total_stcg = total_ltcg = 0
-    fy_stcg = {}
-    fy_ltcg = {}
-    for record in gains_records:
-        print "\t".join(map(str,record))
-        for k, v in zip(header, record):
-            df_dict.setdefault(k,[]).append(v)
-        record_dict = dict(zip(header, record))
-        gain = record_dict['qty']*record_dict['gain_v2_ps']
-        sell_date = record_dict['sell_date']
-        buy_date = record_dict['buy_date']
-        fy = fy_from_sell_date(sell_date)
-        fy_start_date, fy_end_date = fy_dict[fy]
-        if sell_date-buy_date <= datetime.timedelta(days=365):
-            total_stcg += gain
-            fy_stcg[fy] = fy_stcg.get(fy,0) + gain
-        else:
-            total_ltcg += gain
-            fy_ltcg[fy] = fy_ltcg.get(fy,0) + gain
-    gains_df = pandas.DataFrame(df_dict)
-    print gains_df.head(3)
-    print "total_stcg:", total_stcg
-    print "total_ltcg:", total_ltcg
-    print fy_stcg
-    print fy_ltcg
+    header = ['scrip', 'qty', 'gain_price_ps', 'gain_v1_ps', 'gain_v2_ps', 'sell_datetime', 'sell_price_ps', 'sell_v1_ps', 'sell_v2_ps', 'buy_datetime', 'buy_price_ps', 'buy_v1_ps', 'buy_v2_ps']
+    gains_df = df_from_gains_records(header, gains_records)
+    disp_header_detailed = ['scrip', 'qty', 'gain_price_ps', 'gain_v1_ps', 'gain_v2_ps', 'sell_datetime', 'sell_price_ps', 'sell_v1_ps', 'sell_v2_ps', 'buy_datetime', 'buy_price_ps', 'buy_v1_ps', 'buy_v2_ps', 'sell_date', 'buy_date', 'gain_price', 'gain_v1', 'gain_v2']
+    print gains_df.head(1)
+    print fy_dict
+    fy_list = gains_df.fy.unique()
+    print fy_list
+    for fy in fy_list:
+        filename = 'detailed_gains_%s.csv'%fy
+        fy_gains_df = gains_df[gains_df.fy==fy]
+        fy_gains_df.to_csv(filename, columns=disp_header_detailed)
 
 def parse_args():
     default_output = formatted_filepath('output', datestamp=True)
