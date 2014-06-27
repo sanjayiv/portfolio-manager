@@ -96,6 +96,24 @@ def match_buys_for_sells(txndf):
                 print
     return gains_records
 
+def get_fy_dict(earliest_date, latest_date):
+    earliest_year = earliest_date.year
+    latest_year = latest_date.year
+    fy_dict = {}
+    for year in range(earliest_year, latest_year+2):
+        fy_start = datetime.datetime(*(year-1,4,1,0,0,0))
+        fy_end = datetime.datetime(*(year,3,31,23,59,59))
+        fy = "FY-%d"%year
+        print fy, fy_start, fy_end
+        fy_dict[fy] = (fy_start, fy_end)
+    return fy_dict
+
+def fy_from_sell_date(sell_date):
+    if sell_date.month <= 3:
+        return "FY-%d"%sell_date.year
+    else:
+        return "FY-%d"%(sell_date.year+1)
+
 def main(txncsvs, outdir, logger):
     if not os.path.exists(outdir):
         os.makedirs(outdir)
@@ -104,9 +122,37 @@ def main(txncsvs, outdir, logger):
         print "Output dir `%s` already exists! Overwriting content"%outdir
     txndf = load_txtcsvs(txncsvs)
     calc_per_share_values(txndf)
+    earliest_date = min(txndf.trddatetime)
+    latest_date = max(txndf.trddatetime)
+    fy_dict = get_fy_dict(earliest_date, latest_date)
     gains_records = match_buys_for_sells(txndf)
+    header = ['scrip', 'qty', 'gain_price_ps', 'gain_v1_ps', 'gain_v2_ps', 'sell_date', 'sell_price_ps', 'sell_v1_ps', 'sell_v2_ps', 'buy_date', 'buy_price_ps', 'buy_v1_ps', 'buy_v2_ps']
+    df_dict = {}
+    total_stcg = total_ltcg = 0
+    fy_stcg = {}
+    fy_ltcg = {}
     for record in gains_records:
         print "\t".join(map(str,record))
+        for k, v in zip(header, record):
+            df_dict.setdefault(k,[]).append(v)
+        record_dict = dict(zip(header, record))
+        gain = record_dict['qty']*record_dict['gain_v2_ps']
+        sell_date = record_dict['sell_date']
+        buy_date = record_dict['buy_date']
+        fy = fy_from_sell_date(sell_date)
+        fy_start_date, fy_end_date = fy_dict[fy]
+        if sell_date-buy_date <= datetime.timedelta(days=365):
+            total_stcg += gain
+            fy_stcg[fy] = fy_stcg.get(fy,0) + gain
+        else:
+            total_ltcg += gain
+            fy_ltcg[fy] = fy_ltcg.get(fy,0) + gain
+    gains_df = pandas.DataFrame(df_dict)
+    print gains_df.head(3)
+    print "total_stcg:", total_stcg
+    print "total_ltcg:", total_ltcg
+    print fy_stcg
+    print fy_ltcg
 
 def parse_args():
     default_output = formatted_filepath('output', datestamp=True)
