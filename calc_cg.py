@@ -123,11 +123,20 @@ def df_from_gains_records(header, gains_records):
     gains_df = pandas.DataFrame(df_dict)
     gains_df['buy_date'] = gains_df.buy_datetime.apply(lambda dt: dt.date())
     gains_df['sell_date'] = gains_df.sell_datetime.apply(lambda dt: dt.date())
+    gains_df['sell_price'] = gains_df.apply(lambda r: r.ix['qty']*r.ix['sell_price_ps'], axis=1)
+    gains_df['buy_price'] = gains_df.apply(lambda r: r.ix['qty']*r.ix['buy_price_ps'], axis=1)
     gains_df['gain_price'] = gains_df.apply(lambda r: r.ix['qty']*r.ix['gain_price_ps'], axis=1)
     gains_df['gain_v1'] = gains_df.apply(lambda r: r.ix['qty']*r.ix['gain_v1_ps'], axis=1)
     gains_df['gain_v2'] = gains_df.apply(lambda r: r.ix['qty']*r.ix['gain_v2_ps'], axis=1)
     gains_df['fy'] = gains_df.sell_datetime.apply(lambda dt: fy_from_sell_date(dt))
+    gains_df['is_stcg'] = gains_df.apply(lambda r: True if (r.ix['sell_datetime']-r.ix['buy_datetime'] <= datetime.timedelta(days=365)) else False, axis=1)
     return gains_df
+
+def apply_summary_gains(r):
+    return (r.sum().qty, r.sum().sell_price, r.sum().buy_price, r.sum().gain_price, r.sum().gain_v1, r.sum().gain_v2)
+
+def apply_simple_gains(r):
+    return (r.sum.qty, r.sum.sell_price, r.sum.buy_price, r.sum.gain_price, r.sum.gain_v1, r.sum.gain_v2)
 
 def main(txncsvs, outdir, logger):
     if not os.path.exists(outdir):
@@ -143,7 +152,7 @@ def main(txncsvs, outdir, logger):
     gains_records = match_buys_for_sells(txndf)
     header = ['scrip', 'qty', 'gain_price_ps', 'gain_v1_ps', 'gain_v2_ps', 'sell_datetime', 'sell_price_ps', 'sell_v1_ps', 'sell_v2_ps', 'buy_datetime', 'buy_price_ps', 'buy_v1_ps', 'buy_v2_ps']
     gains_df = df_from_gains_records(header, gains_records)
-    disp_header_detailed = ['scrip', 'qty', 'gain_price_ps', 'gain_v1_ps', 'gain_v2_ps', 'sell_datetime', 'sell_price_ps', 'sell_v1_ps', 'sell_v2_ps', 'buy_datetime', 'buy_price_ps', 'buy_v1_ps', 'buy_v2_ps', 'sell_date', 'buy_date', 'gain_price', 'gain_v1', 'gain_v2']
+    disp_header_detailed = ['scrip', 'qty', 'gain_price_ps', 'gain_v1_ps', 'gain_v2_ps', 'sell_datetime', 'sell_price_ps', 'sell_v1_ps', 'sell_v2_ps', 'buy_datetime', 'buy_price_ps', 'buy_v1_ps', 'buy_v2_ps', 'sell_date', 'buy_date', 'gain_price', 'gain_v1', 'gain_v2', 'fy', 'is_stcg']
     print gains_df.head(1)
     print fy_dict
     fy_list = gains_df.fy.unique()
@@ -151,7 +160,13 @@ def main(txncsvs, outdir, logger):
     for fy in fy_list:
         filename = 'detailed_gains_%s.csv'%fy
         fy_gains_df = gains_df[gains_df.fy==fy]
-        fy_gains_df.to_csv(filename, columns=disp_header_detailed)
+        fy_gains_df.to_csv(filename)
+        filename = 'summary_gains_%s.csv'%fy
+        fy_gains_summary_df = fy_gains_df.groupby(['scrip','sell_date','fy','is_stcg']).apply(apply_summary_gains)
+        fy_gains_summary_df.to_csv(filename)
+        filename = 'simple_gains_%s.csv'%fy
+        fy_gains_simple_df = fy_gains_df.groupby(['scrip','fy','is_stcg']).apply(apply_summary_gains)
+        fy_gains_simple_df.to_csv(filename)
 
 def parse_args():
     default_output = formatted_filepath('output', datestamp=True)
