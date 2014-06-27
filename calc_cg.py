@@ -57,13 +57,44 @@ def load_txtcsvs(txncsvs):
 
 def calc_per_share_values(txndf):
     txndf['trddatetime'] = txndf.apply(lambda r: datetime.datetime.strptime(r.ix['trddate']+r.ix['trdtime'], "%d-%b-%y%H:%M:%S"), axis=1)
+    txndf['price'] = txndf.apply(lambda r: -1*r.ix['price'] if 'B' == r.ix['buysell'] else r.ix['price'], axis=1)
     txndf['netamt_ps_v1'] = txndf.buysell.apply(lambda bs: -1 if 'B' == bs else 1)
     txndf['netamt_ps_v1'] = txndf.apply(lambda r: (r.ix['netamt_ps_v1']*r.ix['value']-r.ix['brokamt'])/r.ix['qty'], axis=1)
     txndf['netamt_ps_v2'] = txndf.apply(lambda r: r.ix['netamt']/r.ix['qty'], axis=1)
+    txndf['netamt_ps_v1'] = txndf.netamt_ps_v1.apply(lambda v: round(v,2))
+    txndf['netamt_ps_v2'] = txndf.netamt_ps_v2.apply(lambda v: round(v,2))
     buy_txndf = txndf[txndf.buysell=='B']
     print buy_txndf[['trddatetime','buysell','qty','price','value','brokamt','netamt_ps_v1','netamt_ps_v2']].head(5)
     sell_txndf = txndf[txndf.buysell=='S']
     print sell_txndf[['trddatetime','buysell','qty','price','value','brokamt','netamt_ps_v1','netamt_ps_v2']].head(5)
+
+def match_buys_for_sells(txndf):
+    gains_records = []
+    sell_txndf = txndf[txndf.buysell=='S']
+    buy_txndf = txndf[txndf.buysell=='B']
+    sell_txndf = sell_txndf.sort('trddatetime')
+    buy_txndf = buy_txndf.sort('trddatetime')
+    for sell_irow, sell_txn in  sell_txndf.iterrows():
+        print "Sell:", sell_txn.trddatetime, sell_txn.scrip, sell_txn.qty, sell_txn.price, sell_txn.netamt_ps_v1, sell_txn.netamt_ps_v2
+        for buy_irow, buy_txn in buy_txndf.iterrows():
+            if buy_txn.scrip != sell_txn.scrip:
+                continue
+            if sell_txn.qty > 0 and buy_txn.qty > 0:
+                print buy_irow, sell_irow, buy_txn.scrip, buy_txn.qty, sell_txn.qty
+                print "Buy:", buy_txn.trddatetime, buy_txn.scrip, buy_txn.qty, buy_txn.price, buy_txn.netamt_ps_v1, buy_txn.netamt_ps_v2
+                min_qty = min(buy_txn.qty, sell_txn.qty)
+                gains_records.append((buy_txn.scrip, min_qty, \
+                        buy_txn.price+sell_txn.price, buy_txn.netamt_ps_v1+sell_txn.netamt_ps_v1, buy_txn.netamt_ps_v2+sell_txn.netamt_ps_v2, \
+                        sell_txn.trddatetime, sell_txn.price, sell_txn.netamt_ps_v1, sell_txn.netamt_ps_v2, \
+                        buy_txn.trddatetime, buy_txn.price, buy_txn.netamt_ps_v1, buy_txn.netamt_ps_v2))
+                # updating buy_txn.qty or sell_txn.qty does NOT effect itended record, just a local change
+                buy_txndf.qty[buy_irow] -= min_qty
+                sell_txndf.qty[sell_irow] -= min_qty
+                buy_txn.qty -= min_qty
+                sell_txn.qty -= min_qty
+                print buy_irow, sell_irow, buy_txn.scrip, buy_txn.qty, sell_txn.qty
+                print
+    return gains_records
 
 def main(txncsvs, outdir, logger):
     if not os.path.exists(outdir):
@@ -73,6 +104,9 @@ def main(txncsvs, outdir, logger):
         print "Output dir `%s` already exists! Overwriting content"%outdir
     txndf = load_txtcsvs(txncsvs)
     calc_per_share_values(txndf)
+    gains_records = match_buys_for_sells(txndf)
+    for record in gains_records:
+        print "\t".join(map(str,record))
 
 def parse_args():
     default_output = formatted_filepath('output', datestamp=True)
