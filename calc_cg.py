@@ -159,6 +159,7 @@ def main(txncsvs, outdir, logger):
     else:
         print "Output dir `%s` already exists! Overwriting content"%outdir
     txndf = load_txtcsvs(txncsvs)
+    txndf.to_csv(os.path.join(outdir, 'input_txns_all.csv'))
     calc_per_share_values(txndf)
     print "Updated txndf for per-share values"
     gains_df = match_buys_for_sells(txndf)
