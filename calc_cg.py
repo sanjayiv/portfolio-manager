@@ -39,7 +39,7 @@ def get_logger(filename='', format="%(asctime)s: %(levelname)s: %(message)s", le
     logging.basicConfig(filename=filename, format="%(asctime)s: %(levelname)s: %(message)s", level=logging.DEBUG)
     return logging.getLogger(filename)
 
-def load_txtcsvs(txncsvs):
+def load_txtcsvs(txncsvs, debug_scrip=None):
     df_is_empty = True
     txndf = None
     for eachcsv in txncsvs.split(','):
@@ -50,7 +50,7 @@ def load_txtcsvs(txncsvs):
             df_is_empty = False
             txndf = tmpdf
         else:
-            txndf = pandas.concat([txndf, tmpdf])
+            txndf = pandas.concat([txndf, tmpdf], ignore_index=True)
     columns = [ 'trddate', 'trdno', 'orderno', 'exchange', 'settno', 'setttype', 'trdtime', 'ordertime',
         'scrip', 'buysell', 'qty', 'price', 'value', 'squpdel', 'brokamt', 'servtax', 'stampduty', 
         'txnchg', 'stotc', 'stt', 'sebitt', 'educess', 'higheducess', 'otherchg', 'netamt',
@@ -63,6 +63,9 @@ def load_txtcsvs(txncsvs):
     txndf.drop_duplicates(inplace=True)
     logging.info("After removing duplicates in txndf: %d records"%(len(txndf.trdno)))
     print("After removing duplicates in txndf: %d records"%(len(txndf.trdno)))
+    if debug_scrip:
+        txndf = txndf[txndf.scrip.str.startswith(debug_scrip)]
+        print("After keeping only debug_scrip `%s` in txndf: %d records"%(debug_scrip, len(txndf.trdno)))
     return txndf
 
 def calc_per_share_values(txndf):
@@ -152,13 +155,13 @@ def update_gains_df_for_summary(gains_df):
 def apply_summary_gains(r):
     return (r.sum().qty, r.sum().sell_price, r.sum().buy_price, r.sum().gain_price, r.sum().gain_tbt, r.sum().ebt, r.sum().stcg_tax, r.mean().cagr_ebt, r.mean().cagr_pat)
 
-def main(txncsvs, outdir, logger):
+def main(txncsvs, outdir, logger, debug_scrip=None):
     if not os.path.exists(outdir):
         os.makedirs(outdir)
         print "Created `%s` output dir"%outdir
     else:
         print "Output dir `%s` already exists! Overwriting content"%outdir
-    txndf = load_txtcsvs(txncsvs)
+    txndf = load_txtcsvs(txncsvs, debug_scrip)
     txndf.to_csv(os.path.join(outdir, 'input_txns_all.csv'))
     calc_per_share_values(txndf)
     print "Updated txndf for per-share values"
@@ -197,6 +200,7 @@ def parse_args():
     default_logger = formatted_filepath(suffix='log', sep='.')
     parser = optparse.OptionParser()
     parser.add_option("", "--txncsvs", default=None, help="CSV files with txn, multiple files can be passed as comma,separated")
+    parser.add_option("", "--scrip", default=None, help="Compute for particular scrip. Prefix match.")
     parser.add_option("-o", "--outdir", default=default_output, help="Output dir name")
     parser.add_option("-l", "--logger", default=default_logger, help="Log name")
     (options, args) = parser.parse_args()
@@ -210,7 +214,7 @@ if __name__ == '__main__':
         options, args = parse_args()
         logger = get_logger(options.logger)
         logger.info("%s BEGIN %s"%('-'*40, '-'*40))
-        main(options.txncsvs, options.outdir, logger)
+        main(options.txncsvs, options.outdir, logger, options.scrip)
         logger.info("%s THE END %s"%('-'*40, '-'*40))
     except SystemExit, ee:
         if 1 == ee.code:
