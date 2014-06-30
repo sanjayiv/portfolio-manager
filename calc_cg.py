@@ -155,20 +155,7 @@ def update_gains_df_for_summary(gains_df):
 def apply_summary_gains(r):
     return (r.sum().qty, r.sum().sell_price, r.sum().buy_price, r.sum().gain_price, r.sum().gain_tbt, r.sum().ebt, r.sum().stcg_tax, r.mean().cagr_ebt, r.mean().cagr_pat)
 
-def main(txncsvs, outdir, logger, debug_scrip=None):
-    if not os.path.exists(outdir):
-        os.makedirs(outdir)
-        print "Created `%s` output dir"%outdir
-    else:
-        print "Output dir `%s` already exists! Overwriting content"%outdir
-    txndf = load_txtcsvs(txncsvs, debug_scrip)
-    txndf.to_csv(os.path.join(outdir, 'input_txns_all.csv'))
-    calc_per_share_values(txndf)
-    print "Updated txndf for per-share values"
-    gains_df = match_buys_for_sells(txndf)
-    print "Matched sell records with buy records for txndf"
-    update_gains_df_for_summary(gains_df)
-    print "Updated gains_df for summary"
+def report_by_fy(gains_df, outdir):
     fy_list = gains_df.fy.unique()
     for fy in fy_list:
         print "Processing for %s"%fy
@@ -192,8 +179,25 @@ def main(txncsvs, outdir, logger, debug_scrip=None):
         for key_tuple, value_tuple in fy_gains_simple_dict.iteritems():
             output.write('%s\n'%( ','.join( map(str, list(key_tuple) + map(lambda v: round(v,2),value_tuple)))))
         output.close()
-        #print "%s: STCG: %s"%(fy, fy_gains_simple_df[fy_gains_simple_df.is_stcg==True].count())
-        #print "%s: LTCG: %s"%(fy, fy_gains_simple_df[fy_gains_simple_df.is_ltcg==True].count())
+        print "%s: CG_SUM: %s EBT: %s PAT: %s STCG_TAX: %s"%(fy, sum(fy_gains_df.gain_tbt), sum(fy_gains_df.ebt), sum(fy_gains_df.pat), sum(fy_gains_df.stcg_tax))
+
+def main(txncsvs, outdir, logger, debug_scrip=None):
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
+        print "Created `%s` output dir"%outdir
+    else:
+        print "Output dir `%s` already exists! Overwriting content"%outdir
+    txndf = load_txtcsvs(txncsvs, debug_scrip)
+    txndf.to_csv(os.path.join(outdir, 'input_txns_all.csv'))
+    calc_per_share_values(txndf)
+    print "Updated txndf for per-share values"
+    gains_df = match_buys_for_sells(txndf)
+    print "Matched sell records with buy records for txndf"
+    update_gains_df_for_summary(gains_df)
+    assert sum(gains_df.sell_price) == sum(txndf.value[txndf.buysell=='S'])
+    print "Updated gains_df for summary"
+    report_by_fy(gains_df, outdir)
+    print "Reports by FY ready"
 
 def parse_args():
     default_output = formatted_filepath('output', datestamp=True)
