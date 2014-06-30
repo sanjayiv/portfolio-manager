@@ -205,27 +205,31 @@ def report_holdings(holding_df, outdir):
 
 def sanity_check(txndf, gains_df, holding_df):
     scrip_list = txndf.scrip.unique()
-    pass_counter = net_fail_counter = tbt_fail_counter = total_counter = 0
+    pass_counter = ebt_fail_counter = tbt_fail_counter = total_counter = 0
     for scrip in scrip_list:
         total_counter += 1
         status = True
         scrip_txndf = txndf[txndf.scrip==scrip]
         scrip_gains_df = gains_df[gains_df.scrip==scrip]
         scrip_holding_df = holding_df[holding_df.scrip==scrip]
+        #
         buy_amt = sum(scrip_txndf.netamt[scrip_txndf.buysell=='B'])
-        hold_amt = sum(scrip_holding_df.netamt)
+        hold_amt = sum(scrip_holding_df.netamt_real)
         sell_amt = sum(scrip_txndf.netamt[scrip_txndf.buysell=='S'])
         ebt_amt = sum(scrip_gains_df.ebt)
         net_amt = (buy_amt-hold_amt)+sell_amt
-        if round(net_amt) != round(ebt_amt):
+        if abs(net_amt-ebt_amt) > 1:
             status = False
-            net_fail_counter += 1
-            print "Scrip %s net_amt!=ebt_amt"%scrip
-            print "buy:", buy_amt
-            print "sell:", sell_amt
-            print "hold:", hold_amt
-            print "gain:", ebt_amt 
-            print "net:", net_amt
+            ebt_fail_counter += 1
+            logging.error("%s: ebt check fail"%scrip)
+            print("%s: ebt check fail"%scrip)
+        elif round(net_amt) != round(ebt_amt):
+            logging.warning("%s: ebt check warning"%scrip)
+            print("%s: ebt check warning"%scrip)
+        else:
+            logging.info("%s: ebt check pass"%scrip)
+        logging.info("buy_amt %s sell_amt %s hold_amt %s ebt_amt %s net_amt %s"%(buy_amt, sell_amt, hold_amt, ebt_amt, net_amt))
+        #
         buy_value = sum(scrip_txndf['value'][scrip_txndf.buysell=='B'])
         sell_value = sum(scrip_txndf['value'][scrip_txndf.buysell=='S'])
         buy_brok = sum(scrip_txndf.brokamt[scrip_txndf.buysell=='B'])
@@ -233,18 +237,24 @@ def sanity_check(txndf, gains_df, holding_df):
         hold_tbt = sum(scrip_holding_df.netamt_tbt)
         gain_tbt = sum(scrip_gains_df.gain_tbt)
         net_tbt = sell_value-sell_brok-buy_value-buy_brok-hold_tbt
-        if round(net_tbt) != round(gain_tbt):
+        if abs(net_tbt-gain_tbt) > 1:
             status = False
             tbt_fail_counter += 1
-            print "Scrip %s net_tbt!=gain_tbt"%scrip
-            print "buy_tbt:", buy_value,buy_brok,hold_tbt
-            print "sell_tbt:", sell_value,sell_brok
-            print "diff_tbt:", net_tbt
-            print "gain_tbt:", gain_tbt
+            logging.error("%s: tbt check fail"%scrip)
+            print("%s: tbt check fail"%scrip)
+        elif round(net_tbt) != round(gain_tbt):
+            logging.warning("%s: tbt check warning"%scrip)
+            print("%s: tbt check warning"%scrip)
+        else:
+            logging.info("%s: tbt check pass"%scrip)
+        logging.info("buy_value %s buy_brok %s hold_tbt %s sell_value %s sell_brok %s gain_tbt %s net_tbt %s"%(buy_value, buy_brok, hold_tbt, sell_value, sell_brok, gain_tbt, net_tbt))
         if status:
-            print "No issue with scrip: %s"%scrip
             pass_counter += 1
-    print "Total: %d Pass: %d Fail(net): %d Fail(tbt): %d"%(total_counter, pass_counter, net_fail_counter, tbt_fail_counter)
+    print "Sanity check for all Scrips"
+    print "Total: %d Pass: %d Fail(ebt): %d Fail(tbt): %d"%(total_counter, pass_counter, ebt_fail_counter, tbt_fail_counter)
+    logging.info("Total: %d Pass: %d Fail(ebt): %d Fail(tbt): %d"%(total_counter, pass_counter, ebt_fail_counter, tbt_fail_counter))
+    assert ebt_fail_counter == 0
+    assert tbt_fail_counter == 0
 
 def main(txncsvs, outdir, logger, debug_scrip=None):
     if not os.path.exists(outdir):
