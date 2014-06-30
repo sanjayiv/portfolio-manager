@@ -108,19 +108,8 @@ def match_buys_for_sells(txndf):
     gains_df = pandas.DataFrame(gains_records)
     assert len(gains_df.columns) == len(header)
     gains_df.columns = header
-    return (gains_df, buy_txndf)
-
-def get_fy_dict(earliest_date, latest_date):
-    earliest_year = earliest_date.year
-    latest_year = latest_date.year
-    fy_dict = {}
-    for year in range(earliest_year, latest_year+2):
-        fy_start = datetime.datetime(*(year-1,4,1,0,0,0))
-        fy_end = datetime.datetime(*(year,3,31,23,59,59))
-        fy = "FY-%d"%year
-        print fy, fy_start, fy_end
-        fy_dict[fy] = (fy_start, fy_end)
-    return fy_dict
+    holding_df = buy_txndf[buy_txndf.qty>0]
+    return (gains_df, holding_df)
 
 def fy_from_sell_datetime(sell_date):
     if sell_date.month <= 3:
@@ -151,6 +140,11 @@ def update_gains_df_for_summary(gains_df):
     gains_df['cagr_ebt'] = gains_df.apply(lambda r: STCG_NUM_DAYS*r.ix['ebt_pct']/max(1,r.ix['hold_days']), axis=1)
     gains_df['cagr_pat'] = gains_df.apply(lambda r: STCG_NUM_DAYS*r.ix['pat_pct']/max(1,r.ix['hold_days']), axis=1)
     return gains_df
+
+def update_holding_df_for_summary(holding_df):
+    holding_df['value'] = holding_df['value'].apply(lambda x: -1*x)
+    holding_df['netamt_tbt'] = holding_df.apply(lambda r: r.ix['qty']*r.ix['netamt_ps_tbt'], axis=1)
+    holding_df['netamt_real'] = holding_df.apply(lambda r: r.ix['qty']*r.ix['netamt_ps_real'], axis=1)
 
 def apply_summary_gains(r):
     return (r.sum().qty, r.sum().sell_price, r.sum().buy_price, r.sum().gain_price, r.sum().gain_tbt, r.sum().ebt, r.sum().stcg_tax, r.mean().cagr_ebt, r.mean().cagr_pat)
@@ -185,10 +179,6 @@ def report_gains_by_fy(gains_df, outdir):
         print "%s: CG_SUM: %s EBT: %s PAT: %s STCG_TAX: %s"%(fy, sum(fy_gains_df.gain_tbt), sum(fy_gains_df.ebt), sum(fy_gains_df.pat), sum(fy_gains_df.stcg_tax))
 
 def report_holdings(holding_df, outdir):
-    holding_df = holding_df[holding_df.qty>0]
-    holding_df['value'] = holding_df.value.apply(lambda x: -1*x)
-    holding_df['netamt_tbt'] = holding_df.apply(lambda r: r.ix['qty']*r.ix['netamt_ps_tbt'], axis=1)
-    holding_df['netamt_real'] = holding_df.apply(lambda r: r.ix['qty']*r.ix['netamt_ps_real'], axis=1)
     holding_df.to_csv(os.path.join(outdir, 'detailed_holdings.csv'))
     #
     header = ['scrip', 'trddate', 'qty', 'price', 'price_tbt', 'price_real']
@@ -213,6 +203,49 @@ def report_holdings(holding_df, outdir):
     print "Total Short-Term Holding: %s (STCG)"%(sum(holding_df.netamt[holding_df.trddatetime<yearago]))
     print "Total Long-Term Holding: %s (LTCG)"%(sum(holding_df.netamt[holding_df.trddatetime>=yearago]))
 
+def sanity_check(txndf, gains_df, holding_df):
+    scrip_list = txndf.scrip.unique()
+    pass_counter = net_fail_counter = tbt_fail_counter = total_counter = 0
+    for scrip in scrip_list:
+        total_counter += 1
+        status = True
+        scrip_txndf = txndf[txndf.scrip==scrip]
+        scrip_gains_df = gains_df[gains_df.scrip==scrip]
+        scrip_holding_df = holding_df[holding_df.scrip==scrip]
+        buy_amt = sum(scrip_txndf.netamt[scrip_txndf.buysell=='B'])
+        hold_amt = sum(scrip_holding_df.netamt)
+        sell_amt = sum(scrip_txndf.netamt[scrip_txndf.buysell=='S'])
+        ebt_amt = sum(scrip_gains_df.ebt)
+        net_amt = (buy_amt-hold_amt)+sell_amt
+        if round(net_amt) != round(ebt_amt):
+            status = False
+            net_fail_counter += 1
+            print "Scrip %s net_amt!=ebt_amt"%scrip
+            print "buy:", buy_amt
+            print "sell:", sell_amt
+            print "hold:", hold_amt
+            print "gain:", ebt_amt 
+            print "net:", net_amt
+        buy_value = sum(scrip_txndf['value'][scrip_txndf.buysell=='B'])
+        sell_value = sum(scrip_txndf['value'][scrip_txndf.buysell=='S'])
+        buy_brok = sum(scrip_txndf.brokamt[scrip_txndf.buysell=='B'])
+        sell_brok = sum(scrip_txndf.brokamt[scrip_txndf.buysell=='S'])
+        hold_tbt = sum(scrip_holding_df.netamt_tbt)
+        gain_tbt = sum(scrip_gains_df.gain_tbt)
+        net_tbt = sell_value-sell_brok-buy_value-buy_brok-hold_tbt
+        if round(net_tbt) != round(gain_tbt):
+            status = False
+            tbt_fail_counter += 1
+            print "Scrip %s net_tbt!=gain_tbt"%scrip
+            print "buy_tbt:", buy_value,buy_brok,hold_tbt
+            print "sell_tbt:", sell_value,sell_brok
+            print "diff_tbt:", net_tbt
+            print "gain_tbt:", gain_tbt
+        if status:
+            print "No issue with scrip: %s"%scrip
+            pass_counter += 1
+    print "Total: %d Pass: %d Fail(net): %d Fail(tbt): %d"%(total_counter, pass_counter, net_fail_counter, tbt_fail_counter)
+
 def main(txncsvs, outdir, logger, debug_scrip=None):
     if not os.path.exists(outdir):
         os.makedirs(outdir)
@@ -226,7 +259,8 @@ def main(txncsvs, outdir, logger, debug_scrip=None):
     gains_df, holding_df = match_buys_for_sells(txndf)
     print "Matched sell records with buy records for txndf"
     update_gains_df_for_summary(gains_df)
-    assert sum(gains_df.sell_price) == sum(txndf.value[txndf.buysell=='S'])
+    update_holding_df_for_summary(holding_df)
+    sanity_check(txndf, gains_df, holding_df)
     print "Updated gains_df for summary"
     report_gains_by_fy(gains_df, outdir)
     print "Reports for gains by FY ready"
