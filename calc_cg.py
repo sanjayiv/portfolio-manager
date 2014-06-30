@@ -259,9 +259,11 @@ def main(txncsvs, outdir, logger, debug_scrip=None):
     gains_df, holding_df = match_buys_for_sells(txndf)
     print "Matched sell records with buy records for txndf"
     update_gains_df_for_summary(gains_df)
-    update_holding_df_for_summary(holding_df)
-    sanity_check(txndf, gains_df, holding_df)
     print "Updated gains_df for summary"
+    update_holding_df_for_summary(holding_df)
+    print "Updated holding_df for summary"
+    sanity_check(txndf, gains_df, holding_df)
+    #ready to report
     report_gains_by_fy(gains_df, outdir)
     print "Reports for gains by FY ready"
     report_holdings(holding_df, outdir)
