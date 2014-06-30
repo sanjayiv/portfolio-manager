@@ -108,7 +108,7 @@ def match_buys_for_sells(txndf):
     gains_df = pandas.DataFrame(gains_records)
     assert len(gains_df.columns) == len(header)
     gains_df.columns = header
-    return gains_df
+    return (gains_df, buy_txndf)
 
 def get_fy_dict(earliest_date, latest_date):
     earliest_year = earliest_date.year
@@ -155,7 +155,10 @@ def update_gains_df_for_summary(gains_df):
 def apply_summary_gains(r):
     return (r.sum().qty, r.sum().sell_price, r.sum().buy_price, r.sum().gain_price, r.sum().gain_tbt, r.sum().ebt, r.sum().stcg_tax, r.mean().cagr_ebt, r.mean().cagr_pat)
 
-def report_by_fy(gains_df, outdir):
+def apply_summary_holdings(r):
+    return (r.sum().qty, r.sum().value, r.sum().netamt_tbt, r.sum().netamt_real)
+
+def report_gains_by_fy(gains_df, outdir):
     fy_list = gains_df.fy.unique()
     for fy in fy_list:
         print "Processing for %s"%fy
@@ -181,6 +184,35 @@ def report_by_fy(gains_df, outdir):
         output.close()
         print "%s: CG_SUM: %s EBT: %s PAT: %s STCG_TAX: %s"%(fy, sum(fy_gains_df.gain_tbt), sum(fy_gains_df.ebt), sum(fy_gains_df.pat), sum(fy_gains_df.stcg_tax))
 
+def report_holdings(holding_df, outdir):
+    holding_df = holding_df[holding_df.qty>0]
+    holding_df['value'] = holding_df.value.apply(lambda x: -1*x)
+    holding_df['netamt_tbt'] = holding_df.apply(lambda r: r.ix['qty']*r.ix['netamt_ps_tbt'], axis=1)
+    holding_df['netamt_real'] = holding_df.apply(lambda r: r.ix['qty']*r.ix['netamt_ps_real'], axis=1)
+    holding_df.to_csv(os.path.join(outdir, 'detailed_holdings.csv'))
+    #
+    header = ['scrip', 'trddate', 'qty', 'price', 'price_tbt', 'price_real']
+    holding_summary_dict = holding_df.groupby(['scrip','trddate']).apply(apply_summary_holdings).to_dict()
+    output = open(os.path.join(outdir, 'summary_holdings.csv'), 'wb')
+    output.write("%s\n"%(','.join(header)))
+    for key_tuple, value_tuple in holding_summary_dict.iteritems():
+        output.write('%s\n'%( ','.join( map(str, list(key_tuple) + map(lambda v: round(v,2),value_tuple)))))
+    output.close()
+    #
+    header = ['scrip', 'qty', 'price', 'price_tbt', 'price_real']
+    holding_simple_dict = holding_df.groupby('scrip').apply(apply_summary_holdings).to_dict()
+    output = open(os.path.join(outdir, 'simple_holdings.csv'), 'wb')
+    output.write("%s\n"%(','.join(header)))
+    for scrip, value_tuple in holding_simple_dict.iteritems():
+        output.write('%s\n'%( ','.join( [scrip] + map(str, map(lambda v: round(v,2),value_tuple)))))
+    output.close()
+    #
+    today = datetime.datetime.now()
+    yearago = datetime.datetime(today.year-1, today.month, today.day, today.hour, today.minute, today.second)
+    print "Total Holding: %s"%(sum(holding_df.netamt))
+    print "Total Short-Term Holding: %s (STCG)"%(sum(holding_df.netamt[holding_df.trddatetime<yearago]))
+    print "Total Long-Term Holding: %s (LTCG)"%(sum(holding_df.netamt[holding_df.trddatetime>=yearago]))
+
 def main(txncsvs, outdir, logger, debug_scrip=None):
     if not os.path.exists(outdir):
         os.makedirs(outdir)
@@ -191,13 +223,15 @@ def main(txncsvs, outdir, logger, debug_scrip=None):
     txndf.to_csv(os.path.join(outdir, 'input_txns_all.csv'))
     calc_per_share_values(txndf)
     print "Updated txndf for per-share values"
-    gains_df = match_buys_for_sells(txndf)
+    gains_df, holding_df = match_buys_for_sells(txndf)
     print "Matched sell records with buy records for txndf"
     update_gains_df_for_summary(gains_df)
     assert sum(gains_df.sell_price) == sum(txndf.value[txndf.buysell=='S'])
     print "Updated gains_df for summary"
-    report_by_fy(gains_df, outdir)
-    print "Reports by FY ready"
+    report_gains_by_fy(gains_df, outdir)
+    print "Reports for gains by FY ready"
+    report_holdings(holding_df, outdir)
+    print "Reports for holding ready"
 
 def parse_args():
     default_output = formatted_filepath('output', datestamp=True)
