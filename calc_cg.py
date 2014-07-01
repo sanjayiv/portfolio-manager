@@ -161,18 +161,26 @@ def report_gains_by_fy(gains_df, outdir):
         fy_gains_df.to_csv(filename)
         #
         summary_header = ['qty', 'sell_price', 'buy_price', 'gain_price', 'gain_tbt', 'ebt', 'stcg_tax', 'cagr_ebt', 'cagr_pat']
-        filename = os.path.join(outdir, 'summary_gains_%s.csv'%fy)
-        fy_gains_summary_dict = fy_gains_df.groupby(['scrip','sell_date','fy','is_stcg'], as_index=False).apply(apply_summary_gains).to_dict()
+        filename = os.path.join(outdir, 'consolidated_detailed_gains_%s.csv'%fy)
+        fy_gains_summary_dict = fy_gains_df.groupby(['fy','scrip','sell_date','buy_date','is_stcg'], as_index=False).apply(apply_summary_gains).to_dict()
         output = open(filename, 'wb')
-        output.write('%s\n'%(','.join(['scrip','sell_date','fy','is_stcg']+summary_header)))
+        output.write('%s\n'%(','.join(['fy','scrip','sell_date','buy_date','is_stcg']+summary_header)))
+        for key_tuple, value_tuple in fy_gains_summary_dict.iteritems():
+            output.write('%s\n'%( ','.join( map(str, list(key_tuple) + map(lambda v: round(v,2),value_tuple)))))
+        output.close()
+        #
+        filename = os.path.join(outdir, 'summary_gains_%s.csv'%fy)
+        fy_gains_summary_dict = fy_gains_df.groupby(['fy','scrip','sell_date','is_stcg'], as_index=False).apply(apply_summary_gains).to_dict()
+        output = open(filename, 'wb')
+        output.write('%s\n'%(','.join(['fy','scrip','sell_date','is_stcg']+summary_header)))
         for key_tuple, value_tuple in fy_gains_summary_dict.iteritems():
             output.write('%s\n'%( ','.join( map(str, list(key_tuple) + map(lambda v: round(v,2),value_tuple)))))
         output.close()
         #
         filename = os.path.join(outdir, 'simple_gains_%s.csv'%fy)
-        fy_gains_simple_dict = fy_gains_df.groupby(['scrip','fy','is_stcg'], as_index=False).apply(apply_summary_gains).to_dict()
+        fy_gains_simple_dict = fy_gains_df.groupby(['fy','scrip','is_stcg'], as_index=False).apply(apply_summary_gains).to_dict()
         output = open(filename, 'wb')
-        output.write('%s\n'%(','.join(['scrip','fy','is_stcg']+summary_header)))
+        output.write('%s\n'%(','.join(['fy','scrip','is_stcg']+summary_header)))
         for key_tuple, value_tuple in fy_gains_simple_dict.iteritems():
             output.write('%s\n'%( ','.join( map(str, list(key_tuple) + map(lambda v: round(v,2),value_tuple)))))
         output.close()
