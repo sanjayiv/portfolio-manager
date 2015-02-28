@@ -10,8 +10,9 @@ Output:
     order_datetime / trade_datetime / scrip / buy_sell / quantity / trade_rate / brokerage_amount / net_rate / trade_total / net_total
 
 Column description:
-    order_datetime  : YYYYMMDDTHHMMSS
-    trade_datetime  : YYYYMMDDTHHMMSS
+    trade_date      : YYYYMMDD
+    order_time      : HHMMSS
+    trade_time      : HHMMSS
     scrip           : scrip name
     buy_sell        : B/S
     quantity        : number of units
@@ -60,6 +61,47 @@ def handle_csv(txn_file, outdir, num_header_rows):
         df = adjust_multirow_header(df, num_header_rows)
     return df
 
+## convert to time obj
+# @param v a value to be converted
+def convert_to_time(v):
+    return v
+
+## convert to date obj
+# @param v a value to be converted
+def convert_to_date(v):
+    return v
+
+## convert to nothing, identity
+# @param v a value to be converted
+def convert_identity(v):
+    return v
+
+## convert to int
+# @param v a value to be converted
+def convert_to_int(v):
+    return int(v)
+
+## convert to float
+# @param v a value to be converted
+def convert_to_float(v):
+    return float(v)
+
+## transform transaction dataframe to standard ie trade_date / order_time / trade_time / scrip / buy_sell / quantity / trade_rate / brokerage_amount / net_rate / trade_total / net_total
+# @param txn_df a dataframe, for transactions
+def transform(txn_df):
+    ## hdfcsec: Brok Amt,Buy / Sell,Edu Cess,Exch,High Edu Cess,Mkt Price,Mkt Value,Net Amt,Order No.,Order Time,Other Chrg,Product,Qty,SIP Flag,SIP Ref No,STT,Scrip Name,Sebi Turnover Tax,Serv Tax,Serv Tax on Transn Chrg,Sett No,Sett Type,Squp / Del,Stamp Duty,Trade Time,Transn Chrg,Trd Dt,Trd No.
+    key_columns = ['Trd Dt', 'Order Time', 'Trade Time', 'Scrip Name', 'Buy / Sell', 'Qty',
+            'Mkt Price', 'Brok Amt', 'Mkt Value', 'Net Amt']
+    value_columns = ['trade_date', 'order_time', 'trade_time', 'scrip', 'buy_sell', 'quantity',
+            'trade_rate', 'brokerage_amount', 'trade_total', 'net_total']
+    transform_func_list = [convert_to_date, convert_to_time, convert_to_time, convert_identity, convert_identity, convert_to_int,
+            convert_to_float, convert_to_float, convert_to_float, convert_to_float]
+    for key, val, func in zip(key_columns, value_columns, transform_func_list):
+        txn_df[val] = txn_df[key].apply(lambda v: func(v))
+    txn_df = txn_df[value_columns]
+    txn_df['net_rate'] = txn_df.apply(lambda r: round(r.ix['net_total']/r.ix['quantity'],2), axis=1)
+    return txn_df
+
 ## main function to load and parse input statements
 # @param domain a string, for domain ie hdfcsec / sharekhan / icici
 # @param txn_type a string, for type of transcation ie stock / mf
@@ -89,6 +131,8 @@ def main(domain, txn_type, txn_files, outdir):
         except Exception, ee:
             logging.error(str(ee))
             graceful_exit("ERROR ALERT: Print ensure all transaction reports are of same format")
+    #
+    txn_df = transform(txn_df)
     # txn_df is ready
     outfile = os.path.join(outdir, "%s_%s.csv"%(domain, txn_type))
     txn_df.to_csv(outfile, index=False)
